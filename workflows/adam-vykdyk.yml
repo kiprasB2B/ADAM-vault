@@ -1,0 +1,72 @@
+name: ADAM – vykdyk planą
+
+# Paleidžiama iš ADAM mygtuko „Vykdyk planą“ (workflow_dispatch per GitHub API)
+# arba rankiniu būdu: GitHub → Actions → „ADAM – vykdyk planą“ → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      komanda:
+        description: "Ką daryti (laisvas tekstas lietuviškai)"
+        required: false
+        default: "vykdyk planą"
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: adam-vykdyk
+  cancel-in-progress: false
+
+jobs:
+  vykdyk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Įrankiai (ffmpeg, Python bibliotekos)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg fonts-dejavu-core
+          pip install -q librosa "audio-separator[cpu]" audioread pillow pyyaml
+
+      - name: Claude – organizmo smegenys
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: >-
+            --max-turns 80
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+          prompt: |
+            Tu esi ADAM – Kipro užrašų organizmo vykdytojas. Atsakyk ir rašyk lietuviškai.
+            Komanda: "${{ github.event.inputs.komanda }}"
+
+            Vault yra šio repo aplanke `vault/`. Užrašai – .md su YAML frontmatter ir [[wiki nuorodomis]].
+            Taisyklės ir šablonai: `vault/TikTok/_TAISYKLES.md` (perskaityk pirmiausia).
+
+            Jei komanda yra „vykdyk planą“ (ar panaši):
+            1. Rask visus `vault/TikTok/Video/*.md`, kurių `statusas: paruošta`.
+            2. Kiekvienam paleisk:
+               python tools/adam_video.py --video "<video>" --song "vault/TikTok/Dainos/<dainos failas>.mp3" --out "media/<užrašo vardas>.mp4" --max <trukme arba 27>
+               Dainos failas – iš užrašo, į kurį rodo `daina: [[...]]` (ten yra laukas `failas:`).
+               Jei `daina` tuščia – parink tinkamiausią pagal temą iš `vault/TikTok/Dainos/` ir įrašyk į užrašą.
+            3. Sėkmės atveju užraše nustatyk:
+               `video_url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/media/<vardas>.mp4`
+               `statusas: laukia-planavimo`, `apdorota: <data ir laikas>`.
+               Klaidos atveju: `statusas: klaida` ir `klaida: <trumpas aprašymas>`.
+            4. Jei caption arba `## Pinned` skiltis tuščia – parašyk pagal `_TAISYKLES.md` stilių.
+            5. Organizmo augimas: sukurk `vault/TikTok/Paleidimai/<YYYY-MM-DD HH-mm>.md` su santrauka ir
+               [[nuorodomis]] į kiekvieną apdorotą video, jo kanalą ir dainą. Kanalo ir dainos užrašuose
+               pridėk eilutę į skiltį `## Gijos` su [[nuoroda]] į naują video. Nekurk tuščių užrašų.
+            6. Atnaujink `vault/TikTok/Eile.md`: lentelė su visais `laukia-planavimo` video (data, kanalas, video_url).
+
+            Kita komanda – atlik ją su vault turiniu pagal prasmę, bet niekada netrink užrašų ir nekeisk `tools/` ar `.github/`.
+            Pabaigoje trumpai aprašyk, ką padarei.
+
+      - name: Išsaugoti pakeitimus
+        run: |
+          git config user.name "ADAM"
+          git config user.email "adam@users.noreply.github.com"
+          git add -A vault media
+          git diff --cached --quiet || git commit -m "ADAM: ${{ github.event.inputs.komanda }}"
+          git push
